@@ -1,0 +1,54 @@
+# Production-like local stack: PostgreSQL + API + web (nginx). Not for real PHI.
+#   cp infra/.env.example infra/.env   # then fill in generated keys
+#   docker compose -f infra/docker-compose.yml --env-file infra/.env up --build
+name: carebridge
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: carebridge
+      POSTGRES_USER: carebridge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carebridge"]
+      interval: 5s
+      retries: 10
+    networks: [backend]
+
+  api:
+    build: { context: .., dockerfile: infra/api.Dockerfile }
+    environment:
+      NODE_ENV: ${API_NODE_ENV:-production}
+      DATABASE_URL: postgres://carebridge:${POSTGRES_PASSWORD}@db:5432/carebridge
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://localhost}
+      DATA_KEK: ${DATA_KEK:?set DATA_KEK}
+      BLIND_INDEX_KEY: ${BLIND_INDEX_KEY:?set BLIND_INDEX_KEY}
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:?set JWT_PRIVATE_KEY}
+      REQUIRE_STAFF_MFA: ${REQUIRE_STAFF_MFA:-true}
+    depends_on:
+      db: { condition: service_healthy }
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [backend, frontend]
+
+  web:
+    build: { context: .., dockerfile: infra/web.Dockerfile }
+    ports: ["8080:8080"]
+    depends_on: [api]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [frontend]
+
+volumes:
+  pgdata:
+
+networks:
+  backend: { internal: true }
+  frontend: {}

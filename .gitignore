@@ -1,0 +1,18 @@
+node_modules/
+dist/
+build/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+*.db
+*.db-*
+data/
+.expo/
+apps/mobile/ios/
+apps/mobile/android/
+.DS_Store
+
+# Machine-local npm settings (e.g. cache location on D:)
+.npmrc

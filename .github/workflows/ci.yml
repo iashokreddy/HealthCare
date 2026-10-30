@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test" --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - run: npm run typecheck -w apps/api
+      - name: Tests (SQLite)
+        run: npm test -w apps/api
+      - name: Tests (PostgreSQL)
+        run: npm test -w apps/api
+        env:
+          TEST_DATABASE_URL: postgres://test:test@localhost:5432/test
+      - run: npm run build -w apps/api
+      - name: Dependency audit (fail on high/critical)
+        run: npm audit --omit=dev --audit-level=high
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - run: npm run build -w apps/web
+
+  mobile:
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: apps/mobile }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm, cache-dependency-path: apps/mobile/package-lock.json }
+      - run: npm ci
+      - run: npm run typecheck
+
+  containers:
+    runs-on: ubuntu-latest
+    needs: [api, web]
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f infra/api.Dockerfile -t carebridge-api .
+      - run: docker build -f infra/web.Dockerfile -t carebridge-web .
+      - name: Scan images for vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: carebridge-api
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          ignore-unfixed: true
